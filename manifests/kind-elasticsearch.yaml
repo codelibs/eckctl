@@ -4,6 +4,10 @@ metadata:
   name: __CLUSTER_NAME__
 spec:
   version: __ES_VERSION__
+#  http:
+#    tls:
+#      selfSignedCertificate:
+#        disabled: true
   nodeSets:
   - name: master
     count: __ES_MASTER_COUNT__
@@ -12,6 +16,15 @@ spec:
       node.roles: ["master"]
     podTemplate:
       spec:
+#        initContainers:
+#        - name: install-plugins
+#          command:
+#          - sh
+#          - -c
+#          - |
+#            bin/elasticsearch-plugin install --batch analysis-kuromoji;
+#            bin/elasticsearch-plugin install --batch analysis-nori;
+#            bin/elasticsearch-plugin install --batch analysis-smartcn;
         containers:
         - name: elasticsearch
           env:
@@ -29,6 +42,15 @@ spec:
       node.roles: ["data", "ingest", "ml", "transform"]
     podTemplate:
       spec:
+#        initContainers:
+#        - name: install-plugins
+#          command:
+#          - sh
+#          - -c
+#          - |
+#            bin/elasticsearch-plugin install --batch analysis-kuromoji;
+#            bin/elasticsearch-plugin install --batch analysis-nori;
+#            bin/elasticsearch-plugin install --batch analysis-smartcn;
         containers:
         - name: elasticsearch
           env:
@@ -46,6 +68,15 @@ spec:
       node.roles: !!seq ""
     podTemplate:
       spec:
+#        initContainers:
+#        - name: install-plugins
+#          command:
+#          - sh
+#          - -c
+#          - |
+#            bin/elasticsearch-plugin install --batch analysis-kuromoji;
+#            bin/elasticsearch-plugin install --batch analysis-nori;
+#            bin/elasticsearch-plugin install --batch analysis-smartcn;
         containers:
         - name: elasticsearch
           env:
