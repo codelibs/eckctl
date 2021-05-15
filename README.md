@@ -8,8 +8,10 @@ eckctl creates Kubernetes cluster on [kind](https://kind.sigs.k8s.io/) as defaul
 ### Create ECK Cluster
 
 ```
-$ ./eckctl create
+$ ./eckctl create -k kind
 ```
+
+-k option is kubernetes type. You can spcify `kind` or `eks`.
 
 ### Use Proxy
 
@@ -26,6 +28,6 @@ $ ./eckctl curl https://localhost:9200
 ### Delete ECK Cluster
 
 ```
-$ ./eckctl delete
+$ ./eckctl delete -k kind
 ```
 

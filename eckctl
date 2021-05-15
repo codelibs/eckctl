@@ -92,6 +92,12 @@ create_eck() {
       --es-master-node "${es_master_pool_size}" \
       --es-data-node "${es_data_pool_size}" \
       --es-client-node "${es_client_pool_size}"
+  elif [[ ${k8s_type} = "eks" ]] ; then
+    create_k8s_for_eks -n "${eck_name}" \
+      --default-node "${default_pool_size}" \
+      --es-master-node "${es_master_pool_size}" \
+      --es-data-node "${es_data_pool_size}" \
+      --es-client-node "${es_client_pool_size}"
   else
     echo "Unknown kubernetes: ${k8s_type}"
     exit 1
@@ -247,6 +253,60 @@ create_k8s_for_kind() {
   echo
 }
 
+create_k8s_for_eks() {
+  for opt in "$@" ; do
+    case $opt in
+      -n | --name)
+        eck_name=$2
+        shift 2
+        ;;
+      -dn | --default-node)
+        default_pool_size=$2
+        shift 2
+        ;;
+      -emn | --es-master-node)
+        es_master_pool_size=$2
+        shift 2
+        ;;
+      -edn | --es-data-node)
+        es_data_pool_size=$2
+        shift 2
+        ;;
+      -ecn | --es-client-node)
+        es_client_pool_size=$2
+        shift 2
+        ;;
+      *)
+        if [[ -n "$1" ]] && [[ ! "$1" =~ ^-+ ]]; then
+          shift 1
+        fi
+        ;;
+    esac
+  done
+
+  check_command eksctl
+
+  config_file=${config_dir}/eks-cluster.yaml
+  sed -e "s/__CLUSTER_NAME__/${eck_name}/g" \
+      -e "s/__DEFAULT_COUNT__/${default_pool_size}/g" \
+      -e "s/__ES_MASTER_COUNT__/${es_master_pool_size}/g" \
+      -e "s/__ES_DATA_COUNT__/${es_data_pool_size}/g" \
+      -e "s/__ES_CLIENT_COUNT__/${es_client_pool_size}/g" \
+      ${manifest_dir}/eks-cluster.yaml > ${config_file}
+  eksctl create cluster -f ${config_file}
+  if [[ $? != 0 ]] ; then
+    echo "${program_name} cannot create ${eck_name} cluster on eks."
+    exit 1
+  fi
+
+  sed -e "s/__CLUSTER_NAME__/${eck_name}/g" \
+      -e "s/__ES_VERSION__/${es_version}/g" \
+      -e "s/__ES_MASTER_COUNT__/${es_master_pool_size}/g" \
+      -e "s/__ES_DATA_COUNT__/${es_data_pool_size}/g" \
+      -e "s/__ES_CLIENT_COUNT__/${es_client_pool_size}/g" \
+      ${manifest_dir}/eks-elasticsearch.yaml > ${elasticsearch_file}
+}
+
 delete_eck() {
   setup_config
 
@@ -270,6 +330,8 @@ delete_eck() {
 
   if [[ ${k8s_type} = "kind" ]] ; then
     delete_k8s_for_kind -n "${eck_name}"
+  elif [[ ${k8s_type} = "eks" ]] ; then
+    delete_k8s_for_eks -n "${eck_name}"
   else
     echo "Unknown kubernetes: ${k8s_type}"
     exit 1
@@ -303,6 +365,32 @@ delete_k8s_for_kind() {
   rm -f ${config_dir}/kind-cluster.yaml ${elasticsearch_file} ${eckctl_config_file}
 }
 
+delete_k8s_for_eks() {
+  for opt in "$@" ; do
+    case $opt in
+      -n | --name)
+        eck_name=$2
+        shift 2
+        ;;
+      *)
+        if [[ -n "$1" ]] && [[ ! "$1" =~ ^-+ ]]; then
+          shift 1
+        fi
+        ;;
+    esac
+  done
+
+  check_command eksctl
+
+  eksctl delete cluster -f ${config_dir}/eks-cluster.yaml
+  if [[ $? != 0 ]] ; then
+    echo "${program_name} cannot delete ${eck_name} cluster on kind."
+    exit 1
+  fi
+
+  rm -f ${config_dir}/eks-cluster.yaml ${elasticsearch_file} ${eckctl_config_file}
+}
+
 run_proxy() {
   setup_config
 
@@ -325,8 +413,6 @@ run_proxy() {
     esac
   done
 
-  check_command kubectl
-
   if [[ ${target} = "elasticsearch" ]] ; then
     kubectl port-forward service/${eck_name}-es-http 9200
   else
@@ -339,7 +425,6 @@ run_proxy() {
 run_curl() {
   setup_config
 
-  check_command kubectl
   check_command curl
 
   args=$@
