@@ -5,6 +5,9 @@ metadata:
 spec:
   version: __ES_VERSION__
 #  http:
+#    service:
+#      spec:
+#        type: LoadBalancer
 #    tls:
 #      selfSignedCertificate:
 #        disabled: true
