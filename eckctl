@@ -10,10 +10,10 @@ elasticsearch_file=${config_dir}/elasticsearch.yaml
 eckctl_config_file=${config_dir}/eckctl_config
 eck_name=eck
 k8s_type=kind
-eck_url=https://download.elastic.co/downloads/eck/1.6.0/all-in-one.yaml
+eck_url=https://download.elastic.co/downloads/eck/1.7.1
 wait_time=600
 default_pool_size=1
-es_version=7.13.4
+es_version=7.14.0
 es_master_pool_size=3
 es_data_pool_size=2
 es_client_pool_size=1
@@ -106,7 +106,8 @@ create_eck() {
   echo "export eck_name=${eck_name}" > ${eckctl_config_file}
 
   echo "Applying Elastic Cloud on Kubernetes..."
-  kubectl apply -f ${eck_url}
+  kubectl create -f ${eck_url}/crds.yaml
+  kubectl apply -f ${eck_url}/operator.yaml
 
   count=0
   ret=1
