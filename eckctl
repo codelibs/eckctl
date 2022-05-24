@@ -10,10 +10,9 @@ elasticsearch_file=${config_dir}/elasticsearch.yaml
 eckctl_config_file=${config_dir}/eckctl_config
 eck_name=eck
 k8s_type=kind
-eck_url=https://download.elastic.co/downloads/eck/2.0.0
 wait_time=600
 default_pool_size=1
-es_version=7.16.3
+es_version=7.17.1
 es_master_pool_size=3
 es_data_pool_size=2
 es_client_pool_size=1
@@ -76,8 +75,6 @@ create_eck() {
     esac
   done
 
-  check_command kubectl
-
   echo "<<<Elastic Cloud>>>"
   echo " Default: ${default_pool_size} nodes"
   echo "<<<Elasticsearch>>>"
@@ -87,17 +84,32 @@ create_eck() {
   echo
 
   if [[ ${k8s_type} = "kind" ]] ; then
+    check_command kubectl
     create_k8s_for_kind -n "${eck_name}" \
       --default-node "${default_pool_size}" \
       --es-master-node "${es_master_pool_size}" \
       --es-data-node "${es_data_pool_size}" \
       --es-client-node "${es_client_pool_size}"
+    kubectl_cmd=kubectl
+    helm_cmd=helm
   elif [[ ${k8s_type} = "eks" ]] ; then
+    check_command kubectl
     create_k8s_for_eks -n "${eck_name}" \
       --default-node "${default_pool_size}" \
       --es-master-node "${es_master_pool_size}" \
       --es-data-node "${es_data_pool_size}" \
       --es-client-node "${es_client_pool_size}"
+    kubectl_cmd=kubectl
+    helm_cmd=helm
+  elif [[ ${k8s_type} = "microk8s" ]] ; then
+    check_command microk8s
+    create_k8s_for_microk8s -n "${eck_name}" \
+      --default-node "${default_pool_size}" \
+      --es-master-node "${es_master_pool_size}" \
+      --es-data-node "${es_data_pool_size}" \
+      --es-client-node "${es_client_pool_size}"
+    kubectl_cmd="microk8s kubectl"
+    helm_cmd="microk8s helm3"
   else
     echo "Unknown kubernetes: ${k8s_type}"
     exit 1
@@ -105,9 +117,12 @@ create_eck() {
 
   echo "export eck_name=${eck_name}" > ${eckctl_config_file}
 
-  echo "Applying Elastic Cloud on Kubernetes..."
-  kubectl create -f ${eck_url}/crds.yaml
-  kubectl apply -f ${eck_url}/operator.yaml
+  echo "Adding Elastic Helm Repository..."
+  ${helm_cmd} repo add elastic https://helm.elastic.co
+  ${helm_cmd} repo update
+
+  echo "Install ECK Operator..."
+  ${helm_cmd} install elastic-operator elastic/eck-operator -n elastic-system --create-namespace
 
   count=0
   ret=1
@@ -115,7 +130,7 @@ create_eck() {
     echo -n "."
     count=$(expr $count + 1)
     sleep 1
-    kubectl -n elastic-system logs statefulset.apps/elastic-operator > /dev/null 2>&1
+    ${kubectl_cmd} -n elastic-system logs statefulset.apps/elastic-operator > /dev/null 2>&1
     ret=$?
   done
   echo
@@ -125,7 +140,7 @@ create_eck() {
   fi
 
   echo "Applying Elasticsearch..."
-  kubectl apply -f ${elasticsearch_file}
+  ${kubectl_cmd} apply -f ${elasticsearch_file}
   
   count=0
   ret=1
@@ -133,7 +148,7 @@ create_eck() {
     echo -n "."
     count=$(expr $count + 1)
     sleep 1
-    kubectl get elasticsearch | grep -w ^${eck_name} | grep -w green > /dev/null 2>&1
+    ${kubectl_cmd} get elasticsearch | grep -w ^${eck_name} | grep -w green > /dev/null 2>&1
     ret=$?
   done
   echo
@@ -308,6 +323,47 @@ create_k8s_for_eks() {
       ${manifest_dir}/eks-elasticsearch.yaml > ${elasticsearch_file}
 }
 
+create_k8s_for_microk8s() {
+  for opt in "$@" ; do
+    case $opt in
+      -n | --name)
+        eck_name=$2
+        shift 2
+        ;;
+      -dn | --default-node)
+        default_pool_size=$2
+        shift 2
+        ;;
+      -emn | --es-master-node)
+        es_master_pool_size=$2
+        shift 2
+        ;;
+      -edn | --es-data-node)
+        es_data_pool_size=$2
+        shift 2
+        ;;
+      -ecn | --es-client-node)
+        es_client_pool_size=$2
+        shift 2
+        ;;
+      *)
+        if [[ -n "$1" ]] && [[ ! "$1" =~ ^-+ ]]; then
+          shift 1
+        fi
+        ;;
+    esac
+  done
+
+  check_command microk8s
+
+  sed -e "s/__CLUSTER_NAME__/${eck_name}/g" \
+      -e "s/__ES_VERSION__/${es_version}/g" \
+      -e "s/__ES_MASTER_COUNT__/${es_master_pool_size}/g" \
+      -e "s/__ES_DATA_COUNT__/${es_data_pool_size}/g" \
+      -e "s/__ES_CLIENT_COUNT__/${es_client_pool_size}/g" \
+      ${manifest_dir}/microk8s-elasticsearch.yaml > ${elasticsearch_file}
+}
+
 delete_eck() {
   setup_config
 
@@ -333,6 +389,8 @@ delete_eck() {
     delete_k8s_for_kind -n "${eck_name}"
   elif [[ ${k8s_type} = "eks" ]] ; then
     delete_k8s_for_eks -n "${eck_name}"
+  elif [[ ${k8s_type} = "microk8s" ]] ; then
+    delete_k8s_for_microk8s -n "${eck_name}"
   else
     echo "Unknown kubernetes: ${k8s_type}"
     exit 1
@@ -390,6 +448,32 @@ delete_k8s_for_eks() {
   fi
 
   rm -f ${config_dir}/eks-cluster.yaml ${elasticsearch_file} ${eckctl_config_file}
+}
+
+delete_k8s_for_microk8s() {
+  for opt in "$@" ; do
+    case $opt in
+      -n | --name)
+        eck_name=$2
+        shift 2
+        ;;
+      *)
+        if [[ -n "$1" ]] && [[ ! "$1" =~ ^-+ ]]; then
+          shift 1
+        fi
+        ;;
+    esac
+  done
+
+  check_command microk8s
+
+  microk8s helm3 uninstall elastic-operator -n elastic-system
+  if [[ $? != 0 ]] ; then
+    echo "${program_name} cannot delete ${eck_name} cluster on microk8s."
+    exit 1
+  fi
+
+  rm -f ${config_dir}/microk8s-cluster.yaml ${elasticsearch_file} ${eckctl_config_file}
 }
 
 run_proxy() {
